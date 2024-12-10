@@ -1,0 +1,10 @@
+sync_interval: 900
+
+account:
+  name: ""
+  private_key_path: ""
+
+domains:
+  - "hello.com"
+  - "world.com"
+  - "example.com"
