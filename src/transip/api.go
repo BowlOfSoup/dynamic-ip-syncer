@@ -2,6 +2,8 @@ package transip
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/rs/zerolog/log"
 	"github.com/transip/gotransip/v6"
 	"github.com/transip/gotransip/v6/domain"
@@ -33,7 +35,6 @@ func InitClient(account Account) (*Client, error) {
 }
 
 func (c *Client) GetDnsRecords(domainName string) ([]domain.DNSEntry, error) {
-	// Retrieve the current DNS entries for the domain
 	dnsEntries, repoErr := c.DomainRepo.GetDNSEntries(domainName)
 	if repoErr != nil {
 		return nil, fmt.Errorf("failed to retrieve DNS entries: %v", repoErr)
@@ -42,27 +43,42 @@ func (c *Client) GetDnsRecords(domainName string) ([]domain.DNSEntry, error) {
 	return dnsEntries, nil
 }
 
-func (c *Client) UpdateARecordsWithGivenIps(domainName string, ips *icanhazip.Ip, dnsEntries []domain.DNSEntry) error {
-	for i, dnsEntry := range dnsEntries {
-		if dnsEntry.Type == "A" {
-			log.Debug().Msgf(" → Current A record: %s", dnsEntry.Content)
-			if dnsEntry.Content != ips.V4 {
-				log.Warn().Msgf(" → Updating A record from %s to %s", dnsEntry.Content, ips.V4)
-				dnsEntries[i].Content = ips.V4
-			}
+func (c *Client) UpdateARecordsWithGivenIps(domainName, rootDomain string, ips *icanhazip.Ip, dnsEntries []domain.DNSEntry) error {
+	var updatedEntries []domain.DNSEntry
+	isRootDomain := domainName == rootDomain
+	subdomain := "@"
+
+	if !isRootDomain {
+		subdomain = strings.TrimSuffix(domainName, "."+rootDomain)
+	}
+
+	for _, dnsEntry := range dnsEntries {
+		// Only update if it's the correct entry (@ for root, subdomain otherwise)
+		if dnsEntry.Name != subdomain {
+			continue
 		}
-		if dnsEntry.Type == "AAAA" {
-			log.Debug().Msgf(" → Current AAAA record: %s", dnsEntry.Content)
-			if dnsEntry.Content != ips.V6 {
-				log.Warn().Msgf(" → Updating AAAA record from %s to %s", dnsEntry.Content, ips.V6)
-				dnsEntries[i].Content = ips.V6
-			}
+
+		if dnsEntry.Type == "A" && dnsEntry.Content != ips.V4 {
+			log.Warn().Msgf(" → Updating A record [%s] from %s to %s", dnsEntry.Name, dnsEntry.Content, ips.V4)
+			dnsEntry.Content = ips.V4
+			updatedEntries = append(updatedEntries, dnsEntry)
+		}
+
+		if dnsEntry.Type == "AAAA" && dnsEntry.Content != ips.V6 {
+			log.Warn().Msgf(" → Updating AAAA record [%s] from %s to %s", dnsEntry.Name, dnsEntry.Content, ips.V6)
+			dnsEntry.Content = ips.V6
+			updatedEntries = append(updatedEntries, dnsEntry)
 		}
 	}
 
-	updateErr := c.DomainRepo.ReplaceDNSEntries(domainName, dnsEntries)
-	if updateErr != nil {
-		return updateErr
+	if len(updatedEntries) > 0 {
+		updateErr := c.DomainRepo.ReplaceDNSEntries(rootDomain, updatedEntries)
+		if updateErr != nil {
+			return fmt.Errorf("failed to update DNS records: %v", updateErr)
+		}
+		log.Info().Msgf("✓ Successfully updated DNS records for %s", domainName)
+	} else {
+		log.Info().Msgf("✓ No changes needed for %s", domainName)
 	}
 
 	return nil

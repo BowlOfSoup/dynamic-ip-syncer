@@ -5,6 +5,7 @@ import (
 	"ip-syncer/src/control"
 	"ip-syncer/src/icanhazip"
 	"ip-syncer/src/transip"
+	"strings"
 	"time"
 )
 
@@ -24,7 +25,6 @@ func main() {
 		log.Fatal().Msgf("Failed to load configuration: %v", err)
 	}
 
-	// Initialize the TransIP API client and repositories.
 	transIpApi, clientErr := transip.InitClient(
 		transip.Account{
 			AccountName:    config.Account.Name,
@@ -58,21 +58,56 @@ func (a *appState) syncIpAddresses() {
 	ipAddresses, ipErr := icanhazip.GetIPAddresses()
 	if ipErr != nil {
 		log.Error().Msgf("[Error] [icanhazip]: %v\n", ipErr)
+		return
 	}
 	log.Debug().Msgf("IPv4: %s, IPv6: %s", ipAddresses.V4, ipAddresses.V6)
 
-	// Loop domains
+	// Determine root domains
+	rootDomains := make(map[string]bool)
+	for _, domainName := range a.config.Domains {
+		parts := strings.Split(domainName, ".")
+		if len(parts) == 2 { // This is a root domain
+			rootDomains[domainName] = true
+		}
+	}
+
 	for _, domainName := range a.config.Domains {
 		log.Info().Msgf("→ Processing domainName: %s", domainName)
 
-		records, dnsGetErr := a.transIpApi.GetDnsRecords(domainName)
-		if dnsGetErr != nil {
-			log.Error().Msgf("[Error]: %v\n", dnsGetErr)
+		// Identify root domain for this domain
+		rootDomain := findRootDomain(domainName, rootDomains)
+		if rootDomain == "" {
+			log.Error().Msgf("[Error] Could not determine root domain for %s", domainName)
+			continue
 		}
 
-		updateErr := a.transIpApi.UpdateARecordsWithGivenIps(domainName, ipAddresses, records)
+		records, dnsGetErr := a.transIpApi.GetDnsRecords(rootDomain)
+		if dnsGetErr != nil {
+			log.Error().Msgf("[Error]: %v\n", dnsGetErr)
+			continue
+		}
+
+		// Update records correctly (root `@` or specific subdomain)
+		updateErr := a.transIpApi.UpdateARecordsWithGivenIps(domainName, rootDomain, ipAddresses, records)
 		if updateErr != nil {
 			log.Error().Msgf("[Error]: %v\n", updateErr)
 		}
 	}
+}
+
+// findRootDomain finds the root domain from a given domain name
+func findRootDomain(domainName string, rootDomains map[string]bool) string {
+	parts := strings.Split(domainName, ".")
+	if len(parts) < 2 {
+		return ""
+	}
+
+	for i := 0; i < len(parts)-1; i++ {
+		rootCandidate := strings.Join(parts[i:], ".")
+		if rootDomains[rootCandidate] {
+			return rootCandidate
+		}
+	}
+
+	return ""
 }
