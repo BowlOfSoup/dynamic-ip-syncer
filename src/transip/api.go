@@ -72,9 +72,11 @@ func (c *Client) UpdateARecordsWithGivenIps(domainName, rootDomain string, ips *
 	}
 
 	if len(updatedEntries) > 0 {
-		updateErr := c.DomainRepo.ReplaceDNSEntries(rootDomain, updatedEntries)
-		if updateErr != nil {
-			return fmt.Errorf("failed to update DNS records: %v", updateErr)
+		for _, updateEntry := range updatedEntries {
+			updateErr := c.DomainRepo.UpdateDNSEntry(rootDomain, updateEntry)
+			if updateErr != nil {
+				return fmt.Errorf("failed to update DNS record: %v", updateErr)
+			}
 		}
 		log.Info().Msgf("✓ Successfully updated DNS records for %s", domainName)
 	} else {
