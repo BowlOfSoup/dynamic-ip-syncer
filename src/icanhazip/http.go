@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -16,6 +18,13 @@ type Ip struct {
 	V6 string
 }
 
+type ipFamily int
+
+const (
+	ipFamilyV4 ipFamily = iota
+	ipFamilyV6
+)
+
 func fetchIpByUrl(url string) (string, error) {
 	resp, err := http.Get(url)
 	if err != nil {
@@ -24,7 +33,7 @@ func fetchIpByUrl(url string) (string, error) {
 	defer func(Body io.ReadCloser) {
 		closeErr := Body.Close()
 		if closeErr != nil {
-			log.Fatalf("[canihazip] error: failed to close response body")
+			log.Fatalf("[external request] error: failed to close response body")
 		}
 	}(resp.Body)
 
@@ -36,15 +45,67 @@ func fetchIpByUrl(url string) (string, error) {
 	return strings.TrimSpace(string(body)), nil
 }
 
-func GetIPAddresses() (*Ip, error) {
-	ipv4, err := fetchIpByUrl(ipv4Url)
-	if err != nil {
-		return nil, fmt.Errorf("error fetching V4 address: %w", err)
+func (f ipFamily) label() string {
+	switch f {
+	case ipFamilyV4:
+		return "V4"
+	case ipFamilyV6:
+		return "V6"
+	default:
+		return "unknown"
+	}
+}
+
+func validateIP(ip string, family ipFamily, source string) error {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return fmt.Errorf("invalid %s IP from %s: %s", family.label(), source, ip)
 	}
 
-	ipv6, err := fetchIpByUrl(ipv6Url)
+	isV4 := parsed.To4() != nil
+	if family == ipFamilyV4 && !isV4 {
+		return fmt.Errorf("%s did not return an IPv4 address: %s", source, ip)
+	}
+	if family == ipFamilyV6 && isV4 {
+		return fmt.Errorf("%s did not return an IPv6 address: %s", source, ip)
+	}
+
+	return nil
+}
+
+func fetchValidatedIP(url string, family ipFamily) (string, error) {
+	sourceIP, err := fetchIpByUrl(url)
 	if err != nil {
-		return nil, fmt.Errorf("error fetching V6 address: %w", err)
+		return "", fmt.Errorf("error fetching %s IP from %s: %w", family.label(), url, err)
+	}
+
+	if err := validateIP(sourceIP, family, url); err != nil {
+		return "", err
+	}
+
+	return sourceIP, nil
+}
+
+func resolvedURL(sourceURL *url.URL, fallback string) string {
+	if sourceURL == nil {
+		return fallback
+	}
+
+	return sourceURL.String()
+}
+
+func GetIpAddresses(sourceUrlV4 *url.URL, sourceUrlV6 *url.URL) (*Ip, error) {
+	ipv4URL := resolvedURL(sourceUrlV4, ipv4Url)
+	ipv6URL := resolvedURL(sourceUrlV6, ipv6Url)
+
+	ipv4, err := fetchValidatedIP(ipv4URL, ipFamilyV4)
+	if err != nil {
+		return nil, err
+	}
+
+	ipv6, err := fetchValidatedIP(ipv6URL, ipFamilyV6)
+	if err != nil {
+		return nil, err
 	}
 
 	return &Ip{

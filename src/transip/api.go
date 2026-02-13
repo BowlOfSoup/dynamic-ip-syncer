@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"strings"
 
+	"ip-syncer/src/icanhazip"
+
 	"github.com/rs/zerolog/log"
 	"github.com/transip/gotransip/v6"
 	"github.com/transip/gotransip/v6/domain"
-	"ip-syncer/src/icanhazip"
 )
 
 type Account struct {

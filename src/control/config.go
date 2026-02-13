@@ -8,7 +8,9 @@ import (
 )
 
 type Config struct {
-	SyncInterval int `mapstructure:"sync_interval"`
+	SyncInterval  int    `mapstructure:"sync_interval"`
+	IpSourceUrlV4 string `mapstructure:"ip_source_url_v4"`
+	IpSourceUrlV6 string `mapstructure:"ip_source_url_v6"`
 	Account      struct {
 		Name           string `mapstructure:"name"`
 		PrivateKeyPath string `mapstructure:"private_key_path"`

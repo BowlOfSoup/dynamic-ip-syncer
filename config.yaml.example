@@ -1,5 +1,10 @@
 sync_interval: 900
 
+# Optional override for IP sources. If set, the app will use these URLs first.
+# Each should return a plain-text IP address of the correct family.
+ip_source_url_v4: ""
+ip_source_url_v6: ""
+
 account:
   name: ""
   private_key_path: ""

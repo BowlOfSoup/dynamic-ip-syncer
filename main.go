@@ -1,10 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"github.com/rs/zerolog/log"
 	"ip-syncer/src/control"
 	"ip-syncer/src/icanhazip"
 	"ip-syncer/src/transip"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -12,6 +14,8 @@ import (
 type appState struct {
 	config     *control.Config
 	transIpApi *transip.Client
+	sourceUrlV4 *url.URL
+	sourceUrlV6 *url.URL
 }
 
 func main() {
@@ -23,6 +27,15 @@ func main() {
 	var config control.Config
 	if err := control.LoadConfig(&config); err != nil {
 		log.Fatal().Msgf("Failed to load configuration: %v", err)
+	}
+
+	sourceUrlV4, parseErr := parseSourceURL(config.IpSourceUrlV4, "ip_source_url_v4")
+	if parseErr != nil {
+		log.Fatal().Msgf("Failed to parse configuration: %v", parseErr)
+	}
+	sourceUrlV6, parseErr := parseSourceURL(config.IpSourceUrlV6, "ip_source_url_v6")
+	if parseErr != nil {
+		log.Fatal().Msgf("Failed to parse configuration: %v", parseErr)
 	}
 
 	transIpApi, clientErr := transip.InitClient(
@@ -38,6 +51,8 @@ func main() {
 	app := &appState{
 		config:     &config,
 		transIpApi: transIpApi,
+		sourceUrlV4: sourceUrlV4,
+		sourceUrlV6: sourceUrlV6,
 	}
 
 	// --- Main loop --
@@ -55,7 +70,7 @@ func main() {
 
 func (a *appState) syncIpAddresses() {
 	// Fetch current IP Addresses.
-	ipAddresses, ipErr := icanhazip.GetIPAddresses()
+	ipAddresses, ipErr := icanhazip.GetIpAddresses(a.sourceUrlV4, a.sourceUrlV6)
 	if ipErr != nil {
 		log.Error().Msgf("[Error] [icanhazip]: %v\n", ipErr)
 		return
@@ -93,6 +108,23 @@ func (a *appState) syncIpAddresses() {
 			log.Error().Msgf("[Error]: %v\n", updateErr)
 		}
 	}
+}
+
+func parseSourceURL(raw string, label string) (*url.URL, error) {
+	if raw == "" {
+		return nil, nil
+	}
+
+	parsed, err := url.ParseRequestURI(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%s is not a valid URL: %w", label, err)
+	}
+
+	if parsed.Scheme == "" || parsed.Host == "" {
+		return nil, fmt.Errorf("%s must be absolute (scheme + host): %s", label, raw)
+	}
+
+	return parsed, nil
 }
 
 // findRootDomain finds the root domain from a given domain name
